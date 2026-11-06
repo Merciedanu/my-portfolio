@@ -1,0 +1,82 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAuthorizedAdminEmail(email) {
+      return email.lowerCase() == 'elishamuuo1@gmail.com' ||
+             email.lowerCase() == 'mercyndanu@tech.ke' ||
+             email.lowerCase() == 'mercyndanu@gmail.com' ||
+             email.lowerCase().matches('^mercy.*@.*$') ||
+             email.lowerCase().matches('.*mercyndanu.*@.*');
+    }
+
+    function isAdmin() {
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin" &&
+        isAuthorizedAdminEmail(request.auth.token.email);
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // projects collection
+    match /projects/{projectId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidId(projectId) && request.resource.data.title is string;
+      allow delete: if isAdmin();
+    }
+
+    // hero_info collection
+    match /hero_info/{heroId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidId(heroId) && request.resource.data.fullName is string;
+      allow delete: if isAdmin();
+    }
+
+    // certifications collection
+    match /certifications/{certId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidId(certId) && request.resource.data.title is string;
+      allow delete: if isAdmin();
+    }
+
+    // messages collection
+    match /messages/{messageId} {
+      allow create: if isValidId(messageId) && request.resource.data.name is string && request.resource.data.email is string;
+      allow read, update, delete: if isAdmin();
+    }
+
+    // users collection
+    match /users/{userId} {
+      allow read: if (isSignedIn() && request.auth.uid == userId) || isAdmin();
+      allow create: if isSignedIn() && request.auth.uid == userId && 
+                    request.resource.data.userId == request.auth.uid &&
+                    request.resource.data.email is string &&
+                    request.resource.data.fullName is string &&
+                    (
+                      request.resource.data.role == 'pending' ||
+                      (request.resource.data.role == 'admin' && isAuthorizedAdminEmail(request.auth.token.email))
+                    );
+      allow update: if (isAdmin() && isAuthorizedAdminEmail(request.resource.data.email)) || (
+                      isSignedIn() && request.auth.uid == userId &&
+                      request.resource.data.userId == request.auth.uid &&
+                      request.resource.data.email is string &&
+                      request.resource.data.fullName is string &&
+                      request.resource.data.role == resource.data.role &&
+                      request.resource.data.disabled == resource.data.disabled
+                    );
+      allow delete: if isAdmin();
+    }
+  }
+}
